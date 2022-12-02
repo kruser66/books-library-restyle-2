@@ -25,26 +25,23 @@ def fetch_book_page(book_url):
     return response
 
 
-def download_txt(url, filename, dest_folder='', folder='books'):
+def download_txt(url, filename, folder='books'):
     """Функция для скачивания текстовых файлов.
     Args:
         url (str): Cсылка на текст, который хочется скачать.
         filename (str): Имя файла, с которым сохранять.
-        dest_folder (str): Папка назначения.
         folder (str): Папка, куда сохранять тексты в папке назначения.
     Returns:
         str: Путь до файла, куда сохранён текст.
     """
-    full_path = os.path.join(dest_folder, folder)
-
-    os.makedirs(full_path, exist_ok=True)
+    os.makedirs(folder, exist_ok=True)
 
     response = requests.get(url)
     response.raise_for_status()
     check_for_redirect(response)
 
     path_to_save = os.path.join(
-        full_path,
+        folder,
         sanitize_filename(filename) + '.txt'
     )
 
@@ -56,25 +53,22 @@ def download_txt(url, filename, dest_folder='', folder='books'):
     return path_to_save
 
 
-def download_cover(url, filename, dest_folder='', folder='images'):
+def download_cover(url, filename, folder='images'):
     """Функция для скачивания изображений книг.
     Args:
         url (str): Cсылка на картинку, которую хочется скачать.
         filename (str): Имя файла, с которым сохранять.
-        dest_folder (str): Папка назначения.
         folder (str): Папка, куда сохранять картинки в папке назначения.
     Returns:
         str: Путь до файла, куда сохранёна картинка.
     """
-    full_path = os.path.join(dest_folder, folder)
-
-    os.makedirs(full_path, exist_ok=True)
+    os.makedirs(folder, exist_ok=True)
 
     response = requests.get(url)
     response.raise_for_status()
     check_for_redirect(response)
 
-    path_to_save = os.path.join(full_path, sanitize_filename(filename))
+    path_to_save = os.path.join(folder, sanitize_filename(filename))
 
     with open(path_to_save, 'wb') as file:
         file.write(response.content)
@@ -114,7 +108,6 @@ def parse_category_page(
     category_page,
     start_page=1,
     end_page=0,
-    dest_folder='',
     skip_img=False,
     skip_txt=False,
     json_path='books.json'
@@ -156,14 +149,13 @@ def parse_category_page(
                     cover_name = unquote(
                         urlparse(book['image_src']).path.split('/')[-1]
                     )
-                    print(dest_folder)
 
                     book['book_path'] = '' if skip_txt else download_txt(
                         urljoin(response.url, book['book_path']),
-                        book['title'], dest_folder)
+                        book['title'])
                     book['image_src'] = '' if skip_img else download_cover(
                         urljoin(response.url, book['image_src']),
-                        cover_name, dest_folder)
+                        cover_name)
                     print()
 
                     downloaded_books.append(book)
@@ -188,14 +180,14 @@ def parse_category_page(
                         f'не доступна для скачивания.\n'
                     )
                     break
-                # except Exception as error:
-                #     print(f'\nНепредвиденная ошибка: {error}')
-                #     print(
-                #         f'\nКнига по адресу: {link["href"]} ',
-                #         f'Проверьте! Возможна ошибка при загрузке.\n'
-                #     )
-    json_filename = os.path.join(dest_folder, json_path)
-    with open(json_filename, 'a', encoding='utf-8') as file:
+                except Exception as error:
+                    print(f'\nНепредвиденная ошибка: {error}')
+                    print(
+                        f'\nКнига по адресу: {link["href"]} ',
+                        f'Проверьте! Возможна ошибка при загрузке.\n'
+                    )
+
+    with open(json_path, 'a', encoding='utf-8') as file:
         file.write(
             json.dumps(
                 downloaded_books,
@@ -259,14 +251,15 @@ if __name__ == '__main__':
     parser = create_parser()
     args = parser.parse_args()
 
-    if not os.path.isdir(str(args.dest_folder)):
+    if not os.path.isdir(args.dest_folder):
         parser.print_help()
+
+    os.chdir(args.dest_folder)
 
     parse_category_page(
         category_page=args.category_page,
         start_page=args.start_page,
         end_page=args.end_page,
-        dest_folder=str(args.dest_folder),
         skip_img=args.skip_img,
         skip_txt=args.skip_txt,
         json_path=args.json_path.name
