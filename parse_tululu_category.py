@@ -1,14 +1,12 @@
 import os
-import re
 import sys
+import json
 import requests
 import argparse
 from time import sleep
 from bs4 import BeautifulSoup
 from pathvalidate import sanitize_filename
 from urllib.parse import urljoin, urlparse, unquote
-import json
-from pprint import pprint
 
 
 def check_for_redirect(response):
@@ -80,26 +78,23 @@ def parse_book_page(response):
 
     soup = BeautifulSoup(response.text, 'lxml')
 
-    title_tag = soup.find('h1')
+    title_tag = soup.select_one('h1')
     title, author = title_tag.text.split('::')
 
-    txt_tag = soup.find(href=re.compile("/txt."))
+    txt_tag = soup.select_one('[href^="/txt."]')
     book_path = txt_tag['href'] if txt_tag else '/txt.php'
 
-    image_tag = soup.find('div', class_='bookimage').find('img')
-    image_src = image_tag['src']
+    image_src = soup.select_one('div.bookimage img')['src']
 
-    tag_comments = soup.find_all('div', class_='texts')
-    comments = [tag.find('span').text for tag in tag_comments]
+    comments = [tag.text for tag in soup.select('div.texts span.black')]
 
-    tag_genre = soup.find('span', class_='d_book').find_all('a')
-    genres = [tag.text for tag in tag_genre]
+    genres = [tag.text for tag in soup.select('span.d_book a')]
 
     return {
         'title': title.strip(),
         'author': author.strip(),
-        'image_src': image_src,
         'book_path': book_path,
+        'image_src': image_src,
         'comments': comments,
         'genres': genres,
     }
@@ -132,19 +127,21 @@ def parse_category_page(category_page, pages):
     for pagination in range(1, pages + 1):
 
         url = urljoin(category_page, str(pagination))
-        response = requests.get(url)
-        response.raise_for_status()
+        category_response = requests.get(url)
+        category_response.raise_for_status()
 
-        soup = BeautifulSoup(response.text, 'lxml')
+        soup = BeautifulSoup(category_response.text, 'lxml')
 
-        links = soup.find_all('div', class_='bookimage')
+        links_selector = 'div.bookimage a'
+        links = soup.select(links_selector)
 
         for link in links:
             connection = True
+
             while True:
                 try:
                     response = fetch_book_page(
-                        urljoin(response.url, link.a['href'])
+                        urljoin(category_response.url, link['href'])
                     )
                     book = parse_book_page(response)
 
@@ -178,18 +175,16 @@ def parse_category_page(category_page, pages):
                         sleep(connect_wait)
                 except requests.HTTPError:
                     print(
-                        f'Книга по адресу: {link.a["href"]} ',
+                        f'Книга по адресу: {link["href"]} ',
                         f'не доступна для скачивания.\n'
                     )
                     break
                 except Exception as error:
                     print(f'\nНепредвиденная ошибка: {error}')
                     print(
-                        f'\nКнига по адресу: {link.a["href"]} ',
+                        f'\nКнига по адресу: {link["href"]} ',
                         f'Проверьте! Возможна ошибка при загрузке.\n'
                     )
-
-        pprint(downloaded_books)
 
         with open('books.json', 'w', encoding='utf-8') as file:
             file.write(
