@@ -1,9 +1,9 @@
 import os
-import sys
 import json
 import requests
 import argparse
 from time import sleep
+from itertools import count
 from bs4 import BeautifulSoup
 from pathvalidate import sanitize_filename
 from urllib.parse import urljoin, urlparse, unquote
@@ -100,35 +100,24 @@ def parse_book_page(response):
     }
 
 
-def create_parser():
-    parser = argparse.ArgumentParser(
-        description='Парсинг книг с сайта tululu.org '
-    )
-
-    parser.add_argument(
-        'start_id',
-        help='Начальный индекс (int) для парсинга',
-        type=int
-    )
-    parser.add_argument(
-        'end_id',
-        help='Конечный индекс (int) конечный индекс',
-        type=int
-    )
-
-    return parser
-
-
-def parse_category_page(category_page, pages):
+def parse_category_page(category_page, start_page=1, end_page=0):
 
     downloaded_books = []
     connect_wait = 10
 
-    for pagination in range(1, pages + 1):
+    if end_page:
+        pagination_range = range(start_page, end_page + 1)
+    else:
+        pagination_range = count(start_page)
+
+    for pagination in pagination_range:
 
         url = urljoin(category_page, str(pagination))
         category_response = requests.get(url)
         category_response.raise_for_status()
+        if category_response.history:
+            print(f'Все страницы загружены! Последняя: {pagination - 1}')
+            break
 
         soup = BeautifulSoup(category_response.text, 'lxml')
 
@@ -186,17 +175,50 @@ def parse_category_page(category_page, pages):
                         f'Проверьте! Возможна ошибка при загрузке.\n'
                     )
 
-        with open('books.json', 'w', encoding='utf-8') as file:
-            file.write(
-                json.dumps(
-                    downloaded_books,
-                    indent=True,
-                    ensure_ascii=False
-                )
+    with open('books.json', 'w', encoding='utf-8') as file:
+        file.write(
+            json.dumps(
+                downloaded_books,
+                indent=True,
+                ensure_ascii=False
             )
+        )
+
+
+def create_parser():
+    parser = argparse.ArgumentParser(
+        description='Парсинг книг по категириям с сайта tululu.org '
+    )
+
+    parser.add_argument(
+        '--category_page',
+        help='Ссылка на категорию книг. По умолчанию: \
+            https://tululu.org/l55/ - фантастика',
+        default='https://tululu.org/l55/'
+    )
+    parser.add_argument(
+        '--start_page',
+        help='Начальная страница (int) для парсинга',
+        type=int,
+        default=1
+    )
+    parser.add_argument(
+        '--end_page',
+        help='Конечная страница (int) для парсинга',
+        type=int,
+        default=0
+    )
+
+    return parser
 
 
 if __name__ == '__main__':
 
-    category_page = 'https://tululu.org/l55/'
-    parse_category_page(category_page, 1)
+    parser = create_parser()
+    args = parser.parse_args()
+
+    parse_category_page(
+        category_page=args.category_page,
+        start_page=args.start_page,
+        end_page=args.end_page
+    )
