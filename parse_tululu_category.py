@@ -4,7 +4,6 @@ import requests
 import argparse
 import pathlib
 from time import sleep
-from itertools import count
 from bs4 import BeautifulSoup
 from pathvalidate import sanitize_filename
 from urllib.parse import urljoin, urlparse, unquote
@@ -48,8 +47,6 @@ def download_txt(url, filename, folder='books'):
     with open(path_to_save, 'wb') as file:
         file.write(response.content)
 
-    print(path_to_save)
-
     return path_to_save
 
 
@@ -72,8 +69,6 @@ def download_cover(url, filename, folder='images'):
 
     with open(path_to_save, 'wb') as file:
         file.write(response.content)
-
-    print(path_to_save)
 
     return path_to_save
 
@@ -104,6 +99,28 @@ def parse_book_page(response):
     }
 
 
+def fetch_page_total(category_page_url):
+
+    try:
+        category_response = requests.get(category_page_url)
+        category_response.raise_for_status()
+        check_for_redirect(category_response)
+
+        soup = BeautifulSoup(category_response.text, 'lxml')
+
+        end_page_selector = 'a.npage'
+        end_page = int(soup.select(end_page_selector)[-1].text)
+
+        return end_page
+
+    except requests.RequestException:
+        print(
+            f'Не удалось определить общее количество страниц раздела.'
+            f'Попробуйте еще раз!'
+        )
+        raise SystemExit()
+
+
 def parse_category_page(
     category_page,
     start_page=1,
@@ -116,50 +133,88 @@ def parse_category_page(
     downloaded_books = []
     connect_wait = 10
 
-    if end_page:
-        pagination_range = range(start_page, end_page + 1)
-    else:
-        pagination_range = count(start_page)
+    if not end_page:
+        end_page = fetch_page_total(category_page)
 
-    for pagination in pagination_range:
+    pagination = start_page
 
-        url = urljoin(category_page, str(pagination))
-        category_response = requests.get(url)
-        category_response.raise_for_status()
-        if category_response.history:
-            print(f'Все страницы загружены! Последняя: {pagination - 1}')
+    while pagination <= end_page:
+        next_page = False
+        connection = True
+        while True:
+            try:
+                url = urljoin(category_page, str(pagination))
+                category_response = requests.get(url)
+                category_response.raise_for_status()
+                check_for_redirect(category_response)
+
+                soup = BeautifulSoup(category_response.text, 'lxml')
+
+                links_selector = 'div.bookimage a'
+                links = soup.select(links_selector)
+
+                break
+
+            except requests.ConnectionError:
+                if connection:
+                    connection = False
+                    print(
+                        f'\nОтсутствует соединение с Интернет!'
+                        f'Повторная попытка соединения...'
+                    )
+                else:
+                    print('\nОтсутствует соединение с Интернет!')
+                    print(
+                        f'Повторная попытка соединения через'
+                        f' {connect_wait} секунд.'
+                    )
+                    sleep(connect_wait)
+            except requests.HTTPError:
+                print(
+                    f'Страница раздела с номером: {pagination} ',
+                    f'не доступна для скачивания.\n'
+                )
+                next_page = True
+                break
+
+        if next_page:
             break
-
-        soup = BeautifulSoup(category_response.text, 'lxml')
-
-        links_selector = 'div.bookimage a'
-        links = soup.select(links_selector)
 
         for link in links:
             connection = True
 
             while True:
                 try:
-                    print(urljoin(category_response.url, link['href']))
                     response = fetch_book_page(
                         urljoin(category_response.url, link['href'])
                     )
+                    print(f'Скачиваем: {response.url}')
                     book = parse_book_page(response)
 
                     cover_name = unquote(
                         urlparse(book['image_src']).path.split('/')[-1]
                     )
+                    if skip_txt:
+                        book['book_path'] = ''
+                    else:
+                        book['book_path'] = download_txt(
+                            urljoin(response.url, book['book_path']),
+                            book['title']
+                        )
+                        print(book['book_path'])
 
-                    book['book_path'] = '' if skip_txt else download_txt(
-                        urljoin(response.url, book['book_path']),
-                        book['title'])
-                    book['image_src'] = '' if skip_img else download_cover(
-                        urljoin(response.url, book['image_src']),
-                        cover_name)
-                    print()
+                    if skip_img:
+                        book['image_src'] = ''
+                    else:
+                        book['image_src'] = download_cover(
+                            urljoin(response.url, book['image_src']),
+                            cover_name
+                        )
+                        print(book['image_src'])
 
                     downloaded_books.append(book)
                     break
+
                 except requests.ConnectionError:
                     if connection:
                         connection = False
@@ -180,20 +235,16 @@ def parse_category_page(
                         f'не доступна для скачивания.\n'
                     )
                     break
-                except Exception as error:
-                    print(f'\nНепредвиденная ошибка: {error}')
-                    print(
-                        f'\nКнига по адресу: {link["href"]} ',
-                        f'Проверьте! Возможна ошибка при загрузке.\n'
-                    )
 
-    with open(json_path, 'a', encoding='utf-8') as file:
-        file.write(
-            json.dumps(
-                downloaded_books,
-                indent=True,
-                ensure_ascii=False
-            )
+        print(f'Страница раздела: {pagination} - обработана!')
+        pagination += 1
+
+    with open(json_path, 'w', encoding='utf-8') as file:
+        json.dump(
+            downloaded_books,
+            file,
+            indent=True,
+            ensure_ascii=False
         )
 
 
