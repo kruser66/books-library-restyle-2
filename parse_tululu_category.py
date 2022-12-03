@@ -194,13 +194,17 @@ def parse_category_page(
                     cover_name = unquote(
                         urlparse(book['image_src']).path.split('/')[-1]
                     )
-                    if not skip_txt:
+                    if skip_txt:
+                        book.pop('book_path')
+                    else:
                         book['book_path'] = download_txt(
                             urljoin(response.url, book['book_path']),
                             book['title']
                         )
 
-                    if not skip_img:
+                    if skip_img:
+                        book.pop('image_src')
+                    else:
                         book['image_src'] = download_cover(
                             urljoin(response.url, book['image_src']),
                             cover_name
