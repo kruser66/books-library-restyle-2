@@ -199,13 +199,11 @@ def parse_category_page(
                         urljoin(response.url, book['book_path']),
                         book['title']
                     )
-                    print(f'Загружена книга: {book["book_path"]}')
 
                     book['image_src'] = download_cover(
                         urljoin(response.url, book['image_src']),
                         cover_name
                     )
-                    print(f'Загружена обложка: {book["image_src"]}')
 
                     downloaded_books.append(book)
                     break
